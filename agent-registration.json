@@ -1,0 +1,29 @@
+{
+  "type": "Agent",
+  "name": "CeloPayAgent",
+  "description": "AI-powered autonomous payment agent on Celo. Splits payments, schedules recurring transfers, manages group expenses, and settles debts — all with stablecoins. Designed for AI agents to execute financial operations on behalf of users.",
+  "image": "",
+  "endpoints": [
+    {
+      "type": "wallet",
+      "address": "0x5032320210Acf0133F8eAb5c4351E7a275556FEb",
+      "chainId": 44787
+    }
+  ],
+  "supportedTrust": ["reputation"],
+  "capabilities": [
+    "payment-splitting",
+    "scheduled-payments",
+    "group-expenses",
+    "agent-authorization"
+  ],
+  "contract": {
+    "address": "0x5032320210Acf0133F8eAb5c4351E7a275556FEb",
+    "chain": "celo-sepolia",
+    "chainId": 44787
+  },
+  "builder": {
+    "name": "bigguybobby",
+    "github": "https://github.com/bigguybobby/celo-pay-agent"
+  }
+}
