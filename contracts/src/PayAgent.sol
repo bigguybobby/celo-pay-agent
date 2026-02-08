@@ -65,20 +65,6 @@ contract PayAgent {
     event AgentAuthorized(address indexed agent, address indexed user, uint256 maxPerTx);
     event AgentRevoked(address indexed agent, address indexed user);
 
-    // ─── Modifiers ───────────────────────────────────────────────────────
-    modifier onlyOwner() {
-        require(msg.sender == owner, "not owner");
-        _;
-    }
-
-    modifier onlyAuthorizedFor(address user) {
-        require(
-            msg.sender == user || allowances[user][msg.sender] > 0,
-            "not authorized"
-        );
-        _;
-    }
-
     // ─── Constructor ─────────────────────────────────────────────────────
     constructor() {
         owner = msg.sender;

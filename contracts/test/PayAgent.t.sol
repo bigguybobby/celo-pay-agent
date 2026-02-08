@@ -356,4 +356,112 @@ contract PayAgentTest is Test {
         uint256[] memory due = agent.getDuePayments(ids);
         assertEq(due.length, 0);
     }
+
+    function test_revokeAgent() public {
+        vm.startPrank(alice);
+        agent.authorizeAgent(address(0xBEEF), 100 ether);
+        assertEq(agent.allowances(alice, address(0xBEEF)), 100 ether);
+        assertTrue(agent.authorizedAgents(address(0xBEEF)));
+
+        agent.revokeAgent(address(0xBEEF));
+        assertEq(agent.allowances(alice, address(0xBEEF)), 0);
+        vm.stopPrank();
+    }
+
+    function test_executeScheduled_notActive() public {
+        vm.prank(alice);
+        cusd.approve(address(agent), type(uint256).max);
+
+        vm.prank(alice);
+        uint256 id = agent.schedulePayment(bob, address(cusd), 10 ether, 1 hours, 1);
+
+        vm.warp(block.timestamp + 2 hours);
+        agent.executeScheduled(id);
+        // Now it's inactive (maxExecs=1, execCount=1)
+        vm.warp(block.timestamp + 2 hours);
+        vm.expectRevert("not active");
+        agent.executeScheduled(id);
+    }
+
+    function test_executeScheduled_notDueYet() public {
+        vm.prank(alice);
+        cusd.approve(address(agent), type(uint256).max);
+
+        vm.prank(alice);
+        uint256 id = agent.schedulePayment(bob, address(cusd), 10 ether, 1 hours, 5);
+
+        vm.expectRevert("not due yet");
+        agent.executeScheduled(id);
+    }
+
+    function test_executeScheduled_maxExecsReached() public {
+        vm.prank(alice);
+        cusd.approve(address(agent), type(uint256).max);
+
+        vm.prank(alice);
+        uint256 id = agent.schedulePayment(bob, address(cusd), 10 ether, 1 hours, 2);
+
+        vm.warp(block.timestamp + 2 hours);
+        agent.executeScheduled(id);
+        vm.warp(block.timestamp + 2 hours);
+        agent.executeScheduled(id);
+        // maxExecs=2, execCount=2 => inactive
+        vm.warp(block.timestamp + 2 hours);
+        vm.expectRevert("not active");
+        agent.executeScheduled(id);
+    }
+
+    function test_getDuePayments_mixedStates() public {
+        vm.prank(alice);
+        cusd.approve(address(agent), type(uint256).max);
+
+        vm.startPrank(alice);
+        uint256 id0 = agent.schedulePayment(bob, address(cusd), 10 ether, 1 hours, 5);
+        uint256 id1 = agent.schedulePayment(bob, address(cusd), 10 ether, 2 hours, 5);
+        uint256 id2 = agent.schedulePayment(bob, address(cusd), 10 ether, 3 hours, 5);
+        vm.stopPrank();
+
+        // Warp 1.5 hours — only id0 is due
+        vm.warp(block.timestamp + 1.5 hours);
+        uint256[] memory ids = new uint256[](3);
+        ids[0] = id0;
+        ids[1] = id1;
+        ids[2] = id2;
+        uint256[] memory due = agent.getDuePayments(ids);
+        assertEq(due.length, 1);
+        assertEq(due[0], id0);
+    }
+
+    function test_settleGroup_transfers() public {
+        // Create group
+        address[] memory members = new address[](2);
+        members[0] = alice;
+        members[1] = bob;
+
+        vm.prank(alice);
+        uint256 gid = agent.createGroup("dinner", members, address(cusd));
+
+        // Add expense
+        vm.prank(alice);
+        agent.addExpense(gid, 100 ether, "dinner for two");
+
+        // bob owes alice 50 ether
+        vm.prank(bob);
+        cusd.approve(address(agent), 50 ether);
+
+        address[] memory froms = new address[](1);
+        address[] memory tos = new address[](1);
+        uint256[] memory amounts = new uint256[](1);
+        froms[0] = bob;
+        tos[0] = alice;
+        amounts[0] = 50 ether;
+
+        uint256 u1Before = cusd.balanceOf(alice);
+        agent.settleGroup(gid, froms, tos, amounts);
+        assertEq(cusd.balanceOf(alice), u1Before + 50 ether);
+
+        // Check expense is settled
+        (,,, bool settled) = agent.getExpense(gid, 0);
+        assertTrue(settled);
+    }
 }
