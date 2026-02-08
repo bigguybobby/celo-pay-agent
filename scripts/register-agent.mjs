@@ -3,8 +3,8 @@ import { privateKeyToAccount } from "viem/accounts";
 
 // Celo Sepolia config
 const chain = {
-  id: 44787,
-  name: "Celo Alfajores",
+  id: 11142220,
+  name: "Celo Sepolia",
   nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
   rpcUrls: { default: { http: ["https://celo-sepolia.drpc.org"] } },
 };
