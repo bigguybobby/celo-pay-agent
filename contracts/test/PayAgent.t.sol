@@ -183,4 +183,177 @@ contract PayAgentTest is Test {
         due = agent.getDuePayments(ids);
         assertEq(due.length, 2);
     }
+
+    // ─── Additional coverage tests ───────────────────────────────────────
+
+    function test_createSplit_lengthMismatch() public {
+        address[] memory r = new address[](2);
+        r[0] = bob; r[1] = carol;
+        uint256[] memory s = new uint256[](1);
+        s[0] = 10000;
+        vm.expectRevert("length mismatch");
+        agent.createSplit(keccak256("bad"), r, s, address(cusd));
+    }
+
+    function test_createSplit_empty() public {
+        address[] memory r = new address[](0);
+        uint256[] memory s = new uint256[](0);
+        vm.expectRevert("empty");
+        agent.createSplit(keccak256("empty"), r, s, address(cusd));
+    }
+
+    function test_createSplit_badShares() public {
+        address[] memory r = new address[](1);
+        r[0] = bob;
+        uint256[] memory s = new uint256[](1);
+        s[0] = 5000; // not 10000
+        vm.expectRevert("shares must total 10000 bps");
+        agent.createSplit(keccak256("bad-shares"), r, s, address(cusd));
+    }
+
+    function test_executeSplit_notActive() public {
+        vm.expectRevert("split not active");
+        agent.executeSplit(keccak256("nonexistent"), 100e18);
+    }
+
+    function test_schedulePayment_unlimitedExecs() public {
+        vm.startPrank(alice);
+        cusd.approve(address(agent), type(uint256).max);
+        uint256 id = agent.schedulePayment(bob, address(cusd), 1e18, 1 hours, 0);
+        vm.stopPrank();
+
+        // Execute multiple times — unlimited
+        for (uint256 i; i < 5; i++) {
+            vm.warp(block.timestamp + 1 hours);
+            agent.executeScheduled(id);
+        }
+        assertEq(cusd.balanceOf(bob), 1005e18);
+    }
+
+    function test_cancelScheduled_notOwner() public {
+        vm.startPrank(alice);
+        cusd.approve(address(agent), type(uint256).max);
+        uint256 id = agent.schedulePayment(bob, address(cusd), 1e18, 1 hours, 0);
+        vm.stopPrank();
+
+        vm.prank(bob);
+        vm.expectRevert("not owner");
+        agent.cancelScheduled(id);
+    }
+
+    function test_addExpense_notActive() public {
+        // Group 999 doesn't exist, so not active
+        vm.expectRevert("group not active");
+        agent.addExpense(999, 100e18, "test");
+    }
+
+    function test_addExpense_notMember() public {
+        address[] memory members = new address[](1);
+        members[0] = alice;
+        uint256 groupId = agent.createGroup("solo", members, address(cusd));
+
+        vm.prank(bob); // not a member
+        vm.expectRevert("not a member");
+        agent.addExpense(groupId, 100e18, "test");
+    }
+
+    function test_settleGroup_notActive() public {
+        address[] memory f = new address[](0);
+        address[] memory t = new address[](0);
+        uint256[] memory a = new uint256[](0);
+        vm.expectRevert("group not active");
+        agent.settleGroup(999, f, t, a);
+    }
+
+    function test_settleGroup_lengthMismatch() public {
+        address[] memory members = new address[](2);
+        members[0] = alice; members[1] = bob;
+        uint256 groupId = agent.createGroup("test", members, address(cusd));
+
+        address[] memory f = new address[](1);
+        f[0] = bob;
+        address[] memory t = new address[](1);
+        t[0] = alice;
+        uint256[] memory a = new uint256[](2); // mismatch
+        a[0] = 10e18; a[1] = 20e18;
+
+        vm.expectRevert("length mismatch");
+        agent.settleGroup(groupId, f, t, a);
+    }
+
+    function test_getSplit() public {
+        address[] memory r = new address[](1);
+        r[0] = bob;
+        uint256[] memory s = new uint256[](1);
+        s[0] = 10000;
+        bytes32 sid = keccak256("view-test");
+        agent.createSplit(sid, r, s, address(cusd));
+
+        (address[] memory recipients, uint256[] memory shares, address token, bool active) = agent.getSplit(sid);
+        assertEq(recipients[0], bob);
+        assertEq(shares[0], 10000);
+        assertEq(token, address(cusd));
+        assertTrue(active);
+    }
+
+    function test_getGroupMembers() public {
+        address[] memory members = new address[](2);
+        members[0] = alice; members[1] = bob;
+        uint256 groupId = agent.createGroup("grp", members, address(cusd));
+        address[] memory m = agent.getGroupMembers(groupId);
+        assertEq(m.length, 2);
+        assertEq(m[0], alice);
+    }
+
+    function test_getExpense() public {
+        address[] memory members = new address[](1);
+        members[0] = alice;
+        uint256 groupId = agent.createGroup("exp", members, address(cusd));
+
+        vm.prank(alice);
+        agent.addExpense(groupId, 50e18, "lunch");
+
+        (address paidBy, uint256 amount, string memory desc, bool settled) = agent.getExpense(groupId, 0);
+        assertEq(paidBy, alice);
+        assertEq(amount, 50e18);
+        assertEq(desc, "lunch");
+        assertFalse(settled);
+    }
+
+    function test_getGroupExpenseCount() public {
+        address[] memory members = new address[](1);
+        members[0] = alice;
+        uint256 groupId = agent.createGroup("cnt", members, address(cusd));
+
+        vm.startPrank(alice);
+        agent.addExpense(groupId, 10e18, "a");
+        agent.addExpense(groupId, 20e18, "b");
+        vm.stopPrank();
+
+        assertEq(agent.getGroupExpenseCount(groupId), 2);
+    }
+
+    function test_isMember_false() public {
+        address[] memory members = new address[](2);
+        members[0] = alice; members[1] = bob;
+        uint256 groupId = agent.createGroup("check", members, address(cusd));
+
+        vm.prank(carol); // not a member
+        vm.expectRevert("not a member");
+        agent.addExpense(groupId, 10e18, "nope");
+    }
+
+    function test_getDuePayments_noneActive() public {
+        vm.startPrank(alice);
+        cusd.approve(address(agent), type(uint256).max);
+        uint256 id = agent.schedulePayment(bob, address(cusd), 1e18, 1 hours, 0);
+        agent.cancelScheduled(id);
+        vm.stopPrank();
+
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = id;
+        vm.warp(block.timestamp + 2 hours);
+        uint256[] memory due = agent.getDuePayments(ids);
+        assertEq(due.length, 0);
+    }
 }
