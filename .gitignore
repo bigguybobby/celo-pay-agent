@@ -1,0 +1,5 @@
+contracts/out/
+contracts/cache/
+node_modules/
+.next/
+.vercel/
